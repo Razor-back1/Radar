@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>Carte live</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="carte" aria-label="Carte du monde"></div>
+
+<div class="haut">
+  <div class="pastille" id="compteur" aria-live="polite">✈ …</div>
+  <button class="rond" id="localiser" aria-label="Me localiser">📍</button>
+</div>
+
+<div class="info" id="info" role="status" hidden></div>
+
+<div class="legende" id="legende" aria-hidden="true">
+  <span>sol</span><i></i><span>FL400</span>
+</div>
+
+<section class="fiche" id="fiche" hidden aria-live="polite">
+  <button class="ferme" id="fermer" aria-label="Fermer">✕</button>
+  <div class="entete">
+    <h2 id="f-titre"></h2>
+    <div class="sous" id="f-sous"></div>
+  </div>
+  <div class="alerte" id="f-alerte" hidden></div>
+  <dl class="grille" id="f-grille"></dl>
+  <div class="actions">
+    <button id="suivre" class="bouton">Suivre</button>
+    <a id="f-lien" class="bouton lien" target="_blank" rel="noopener">adsb.lol ↗</a>
+  </div>
+</section>
+
+<script src="config.js"></script>
+<script src="vendor/maplibre-gl.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,87 @@
+:root {
+  color-scheme: dark light;
+  --fond: #0e1116;
+  --fond2: #171c24;
+  --texte: #e8edf3;
+  --doux: #9aa5b1;
+  --ligne: #2a323d;
+  --accent: #27c4f5;
+  --alerte: #ff4d4f;
+  --ombre: 0 8px 28px rgba(0, 0, 0, .45);
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --fond: #ffffff;
+    --fond2: #f2f5f8;
+    --texte: #14202b;
+    --doux: #5d6b79;
+    --ligne: #d8dfe6;
+    --accent: #0a84c6;
+    --ombre: 0 8px 28px rgba(20, 32, 43, .22);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--fond); color: var(--texte); font: 16px/1.35 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; overscroll-behavior: none; }
+body { overflow: hidden; -webkit-text-size-adjust: 100%; }
+#carte { position: fixed; inset: 0; }
+button, a { font: inherit; -webkit-tap-highlight-color: transparent; }
+
+/* Les commandes restent sur les côtés : le centre du haut est pris par le bouton rond du hub. */
+.haut {
+  position: fixed; z-index: 5; left: max(.7rem, env(safe-area-inset-left)); right: max(.7rem, env(safe-area-inset-right));
+  top: calc(.6rem + env(safe-area-inset-top)); display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none;
+}
+.haut > * { pointer-events: auto; }
+.pastille {
+  max-width: calc(50% - 3rem); min-height: 2.75rem; display: flex; align-items: center; padding: 0 .95rem; border-radius: 1.4rem;
+  background: var(--fond); border: 1px solid var(--ligne); box-shadow: var(--ombre); font-weight: 600; font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rond {
+  width: 2.75rem; height: 2.75rem; border-radius: 50%; border: 1px solid var(--ligne); background: var(--fond); color: var(--texte);
+  box-shadow: var(--ombre); font-size: 1.2rem; display: grid; place-items: center; padding: 0;
+}
+.rond:active { background: var(--fond2); }
+
+.info {
+  position: fixed; z-index: 4; left: 50%; transform: translateX(-50%); bottom: calc(3.2rem + env(safe-area-inset-bottom));
+  width: max-content; max-width: min(92vw, 26rem); padding: .7rem 1rem; border-radius: 1rem; background: var(--fond); border: 1px solid var(--ligne);
+  box-shadow: var(--ombre); text-align: center; font-size: .95rem;
+}
+.info.erreur { border-color: var(--alerte); }
+.info code { font-size: .85em; background: var(--fond2); padding: .05rem .35rem; border-radius: .35rem; }
+
+.legende {
+  position: fixed; z-index: 3; left: max(.7rem, env(safe-area-inset-left)); bottom: calc(1.9rem + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: .4rem; font-size: .72rem; color: var(--doux); padding: .2rem .55rem; border-radius: .8rem;
+  background: color-mix(in srgb, var(--fond) 82%, transparent);
+}
+.legende i { width: 5.5rem; height: .45rem; border-radius: .25rem; background: linear-gradient(90deg, #9aa5b1 0%, #ffd23f 8%, #7ed957 40%, #27c4f5 70%, #b06cff 100%); }
+
+.fiche {
+  position: fixed; z-index: 6; left: 50%; transform: translateX(-50%); bottom: max(.7rem, env(safe-area-inset-bottom));
+  width: min(calc(100vw - 1.4rem), 30rem); max-height: 70dvh; overflow: auto; padding: 1rem 1rem .9rem; border-radius: 1.3rem;
+  background: var(--fond); border: 1px solid var(--ligne); box-shadow: var(--ombre);
+}
+.fiche[hidden], .info[hidden], .alerte[hidden] { display: none; }
+@media (min-width: 900px) { .fiche { left: .9rem; transform: none; } }
+.ferme { position: absolute; top: .5rem; right: .5rem; width: 2.5rem; height: 2.5rem; border: 0; border-radius: 50%; background: transparent; color: var(--doux); font-size: 1.1rem; }
+.entete { padding-right: 2.5rem; }
+.entete h2 { margin: 0; font-size: 1.45rem; line-height: 1.15; }
+.sous { margin-top: .15rem; color: var(--doux); font-size: .92rem; }
+.alerte { margin: .7rem 0 0; padding: .55rem .75rem; border-radius: .8rem; background: color-mix(in srgb, var(--alerte) 18%, transparent); border: 1px solid var(--alerte); font-weight: 600; }
+.grille { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem .5rem; margin: .85rem 0 .2rem; }
+.grille div { min-width: 0; }
+.grille .large { grid-column: span 3; }
+.grille dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--doux); }
+.grille dd { margin: .05rem 0 0; font-size: 1.05rem; font-weight: 600; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actions { display: flex; gap: .5rem; margin-top: .8rem; }
+.bouton {
+  flex: 1; min-height: 2.75rem; display: grid; place-items: center; padding: 0 .8rem; border-radius: .95rem; border: 1px solid var(--ligne);
+  background: var(--fond2); color: var(--texte); text-decoration: none; font-weight: 600; font-size: .95rem; cursor: pointer;
+}
+.bouton.actif { background: var(--accent); border-color: var(--accent); color: #04121a; }
+
+/* Contrôles de MapLibre : à droite et en dessous du bouton de localisation. */
+.maplibregl-ctrl-top-right { top: calc(3.9rem + env(safe-area-inset-top)); right: max(.4rem, env(safe-area-inset-right)); }
+.maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { bottom: env(safe-area-inset-bottom); }
