@@ -6,7 +6,7 @@ Aujourd'hui : **avions** (ADS-B). À venir, une couche à la fois : navires (AIS
 - `index.html`, `app.js`, `style.css` : l'app (MapLibre, sans étape de build, publiée par GitHub Pages)
 - `vendor/` : MapLibre GL JS 5.24.0 (copié ici, rien n'est chargé depuis un CDN)
 - `worker/` : Worker Cloudflare qui interroge les sources publiques (adsb.lol, avec airplanes.live en secours),
-  gère le cache et le CORS. Une route par couche, `/avions` pour l'instant.
+  gère le cache et le CORS. Une route par couche : `/avions`, et `/route` (départ et destination d'un vol, d'après la base de routes d'adsb.lol, par indicatif ; routes programmées, donc pas de trajet pour l'aviation légère).
 - `config.js` : adresse du Worker et fonds de carte
 
 ## Mise en route

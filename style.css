@@ -63,12 +63,15 @@ button, a { font: inherit; -webkit-tap-highlight-color: transparent; }
   width: min(calc(100vw - 1.4rem), 30rem); max-height: 70dvh; overflow: auto; padding: 1rem 1rem .9rem; border-radius: 1.3rem;
   background: var(--fond); border: 1px solid var(--ligne); box-shadow: var(--ombre);
 }
-.fiche[hidden], .info[hidden], .alerte[hidden] { display: none; }
+.fiche[hidden], .info[hidden], .alerte[hidden], .trajet[hidden] { display: none; }
 @media (min-width: 900px) { .fiche { left: .9rem; transform: none; } }
 .ferme { position: absolute; top: .5rem; right: .5rem; width: 2.5rem; height: 2.5rem; border: 0; border-radius: 50%; background: transparent; color: var(--doux); font-size: 1.1rem; }
 .entete { padding-right: 2.5rem; }
 .entete h2 { margin: 0; font-size: 1.45rem; line-height: 1.15; }
 .sous { margin-top: .15rem; color: var(--doux); font-size: .92rem; }
+.trajet { margin: .7rem 0 0; padding: .6rem .8rem; border-radius: .9rem; background: var(--fond2); border: 1px solid var(--ligne); }
+.trajet .codes { font-size: 1.35rem; font-weight: 700; letter-spacing: .02em; }
+.trajet .noms { margin-top: .1rem; font-size: .88rem; color: var(--doux); }
 .alerte { margin: .7rem 0 0; padding: .55rem .75rem; border-radius: .8rem; background: color-mix(in srgb, var(--alerte) 18%, transparent); border: 1px solid var(--alerte); font-weight: 600; }
 .grille { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem .5rem; margin: .85rem 0 .2rem; }
 .grille div { min-width: 0; }

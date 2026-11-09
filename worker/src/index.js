@@ -2,6 +2,7 @@
 // Une route par couche : /avions aujourd'hui ; navires, conflits et caméras viendront s'ajouter dans `routes`.
 
 import { cases, chargerCase, fusionner, parLots, zones } from './avions.js';
+import { chargerRoute, indicatifValide } from './route.js';
 
 const CORS = {
   'access-control-allow-origin': '*',
@@ -68,8 +69,25 @@ export async function avions(url, ctx, fetcher = fetch) {
   return json({ t: Date.now(), n: liste.length, partiel: ok.length < resultats.length, avions: liste }, 200, { 'cache-control': 'no-store' });
 }
 
+/** Départ et destination d'un vol (par indicatif) : une route change rarement, donc 6 h de cache (30 min si le vol est inconnu). */
+export async function route(url, ctx, fetcher = fetch) {
+  const c = (url.searchParams.get('c') || '').trim().toUpperCase();
+  if (!indicatifValide(c)) return json({ error: 'Indicatif attendu (ex. BEL1ZT)' }, 400);
+  const cache = globalThis.caches?.default;
+  const cle = new Request(`https://cache.carte.invalid/route/${c}`);
+  if (cache) {
+    const hit = await cache.match(cle);
+    if (hit) return json(await hit.json(), 200, { 'cache-control': 'public, max-age=3600' });
+  }
+  const r = await chargerRoute(c, fetcher);
+  const corps = { route: r };
+  if (cache) ctx?.waitUntil?.(cache.put(cle, new Response(JSON.stringify(corps), { headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${r ? 21600 : 1800}` } })));
+  return json(corps, 200, { 'cache-control': 'public, max-age=3600' });
+}
+
 const routes = {
   '/avions': avions,
+  '/route': route,
 };
 
 export default {

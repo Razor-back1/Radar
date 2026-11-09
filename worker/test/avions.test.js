@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { avions } from '../src/index.js';
+import { avions, route } from '../src/index.js';
+import { chargerRoute, indicatifValide, normaliserRoute, urlRoute } from '../src/route.js';
 import { cases, chargerCase, distanceNm, fusionner, grille, normaliser, parLots, pasLon, zones } from '../src/avions.js';
 
 test('la grille d\'une petite zone (Belgique) tient en peu de cases, avec des rayons permis par les sources', () => {
@@ -119,4 +120,41 @@ test('route /avions : paramètres invalides, zone trop grande, et réponse norma
 
   const panne = await get('s=50&w=4&n=51&e=5', async () => new Response('x', { status: 500 }));
   assert.equal(panne.status, 502);
+});
+
+const FICHE = {
+  callsign: 'BEL1ZT', airport_codes: 'EBBR-EKCH',
+  _airports: [
+    { name: 'Brussels Airport', icao: 'EBBR', iata: 'BRU', location: 'Brussels', countryiso2: 'BE', lat: 50.901402, lon: 4.48444 },
+    { name: 'Copenhagen Kastrup Airport', icao: 'EKCH', iata: 'CPH', location: 'Copenhagen', countryiso2: 'DK', lat: 55.617901, lon: 12.656 },
+  ],
+};
+
+test('route : adresse de la fiche, indicatifs valides, normalisation', () => {
+  assert.equal(urlRoute('BEL1ZT'), 'https://vrs-standing-data.adsb.lol/routes/BE/BEL1ZT.json');
+  assert.ok(indicatifValide('BEL1ZT') && !indicatifValide('be') && !indicatifValide('../../x') && !indicatifValide('ABCDEFGHI'));
+  const r = normaliserRoute(FICHE);
+  assert.equal(r.etapes.length, 2);
+  assert.deepEqual([r.etapes[0].iata, r.etapes[1].iata, r.etapes[1].nom], ['BRU', 'CPH', 'Copenhagen Kastrup Airport']);
+  assert.equal(normaliserRoute({ _airports: [FICHE._airports[0]] }), null);
+  assert.equal(normaliserRoute({}), null);
+});
+
+test('route : inconnu = null, base en panne = erreur', async () => {
+  assert.equal(await chargerRoute('ZZZ999', async () => new Response('', { status: 404 })), null);
+  assert.equal(await chargerRoute('ZZZ999', async () => new Response('', { status: 403 })), null);
+  await assert.rejects(chargerRoute('BEL1ZT', async () => new Response('', { status: 500 })), /500/);
+});
+
+test('route /route : indicatif refusé s\'il est invalide, réponse normale sinon', async () => {
+  const get = async (qs, fetcher) => {
+    const rep = await route(new URL(`https://x/route?${qs}`), undefined, fetcher);
+    return { status: rep.status, corps: await rep.json() };
+  };
+  assert.equal((await get('c=../x')).status, 400);
+  assert.equal((await get('')).status, 400);
+  const ok = await get('c=bel1zt', async (u) => { assert.match(u, /BEL1ZT\.json$/); return new Response(JSON.stringify(FICHE)); });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.corps.route.etapes[0].iata, 'BRU');
+  assert.equal((await get('c=ZZZ999', async () => new Response('', { status: 404 }))).corps.route, null);
 });

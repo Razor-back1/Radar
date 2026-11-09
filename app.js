@@ -46,6 +46,7 @@
     ['interpolate', ['linear'], ['coalesce', ['get', 'a'], 0], 0, '#ffd23f', 10000, '#7ed957', 28000, '#27c4f5', 40000, '#b06cff']];
 
   let avionsGeo = { type: 'FeatureCollection', features: [] };
+  let routeGeo = { type: 'FeatureCollection', features: [] }; // trajet de l'avion ouvert : départ → avion → arrivée
   let selection = null; // code OACI de l'avion ouvert
   let suivi = false;
 
@@ -55,6 +56,13 @@
     // Police : on reprend celle du fond de carte, sinon pas d'étiquettes (chaque style a ses propres polices).
     const police = (carte.getStyle().layers.find((l) => l.layout && l.layout['text-font']) || {}).layout?.['text-font'];
     const taille = ['interpolate', ['linear'], ['zoom'], 3, 0.32, 8, 0.5, 12, 0.7];
+    if (!carte.getSource('route')) carte.addSource('route', { type: 'geojson', data: routeGeo });
+    if (!carte.getLayer('route-fait'))
+      carte.addLayer({ id: 'route-fait', type: 'line', source: 'route', filter: ['==', ['get', 'p'], 'fait'], layout: { 'line-cap': 'round' }, paint: { 'line-color': '#27c4f5', 'line-width': 2.5, 'line-opacity': 0.9 } });
+    if (!carte.getLayer('route-reste'))
+      carte.addLayer({ id: 'route-reste', type: 'line', source: 'route', filter: ['==', ['get', 'p'], 'reste'], paint: { 'line-color': '#27c4f5', 'line-width': 2, 'line-opacity': 0.6, 'line-dasharray': [2, 2] } });
+    if (!carte.getLayer('route-aeroports'))
+      carte.addLayer({ id: 'route-aeroports', type: 'circle', source: 'route', filter: ['==', ['get', 'p'], 'aeroport'], paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-color': '#27c4f5', 'circle-stroke-width': 2.5 } });
     if (!carte.getLayer('avions-urgence'))
       carte.addLayer({ id: 'avions-urgence', type: 'circle', source: 'avions', filter: ['==', ['get', 'u'], 1],
         paint: { 'circle-radius': 16, 'circle-color': '#ff4d4f', 'circle-opacity': 0.35, 'circle-stroke-color': '#ff4d4f', 'circle-stroke-width': 2 } });
@@ -70,6 +78,7 @@
           ...(police ? { 'text-color': sombre() ? '#e8edf3' : '#14202b', 'text-halo-color': sombre() ? 'rgba(0,0,0,.8)' : 'rgba(255,255,255,.9)', 'text-halo-width': 1.2 } : {}) } });
     carte.setFilter('avions-selection', ['==', ['get', 'h'], selection || '']);
     carte.getSource('avions').setData(avionsGeo);
+    carte.getSource('route').setData(routeGeo);
   }
   carte.on('style.load', installerCouches);
 
@@ -184,6 +193,62 @@
   carte.once('load', () => planifier(0));
   document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - derniereMaj > RAFRAICHIR_MS) planifier(0); });
 
+  // ── Trajet : grand cercle entre deux points, distance, base de routes ──
+  const RAD = Math.PI / 180;
+  const distanceNm = (y1, x1, y2, x2) => {
+    const a = Math.sin(((y2 - y1) * RAD) / 2) ** 2 + Math.cos(y1 * RAD) * Math.cos(y2 * RAD) * Math.sin(((x2 - x1) * RAD) / 2) ** 2;
+    return 2 * 3440.065 * Math.asin(Math.min(1, Math.sqrt(a)));
+  };
+  /** Points du grand cercle de [x1,y1] à [x2,y2] (longitudes continues, pour ne pas faire le tour de la carte à l'antiméridien). */
+  function arc([x1, y1], [x2, y2], n = 48) {
+    const v = (x, y) => [Math.cos(y * RAD) * Math.cos(x * RAD), Math.cos(y * RAD) * Math.sin(x * RAD), Math.sin(y * RAD)];
+    const a = v(x1, y1), b = v(x2, y2);
+    const w = Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])));
+    if (w < 1e-6) return [[x1, y1], [x2, y2]];
+    const pts = [];
+    let prev = x1;
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, k1 = Math.sin((1 - t) * w) / Math.sin(w), k2 = Math.sin(t * w) / Math.sin(w);
+      const p = [k1 * a[0] + k2 * b[0], k1 * a[1] + k2 * b[1], k1 * a[2] + k2 * b[2]];
+      let x = Math.atan2(p[1], p[0]) / RAD;
+      while (x - prev > 180) x -= 360;
+      while (x - prev < -180) x += 360;
+      prev = x;
+      pts.push([x, Math.asin(p[2]) / RAD]);
+    }
+    return pts;
+  }
+
+  const routes = new Map(); // indicatif → { route } | null (inconnu) ; absent = pas encore demandé
+  async function demanderRoute(c) {
+    if (!c || routes.has(c) || !CFG.worker) return;
+    routes.set(c, null);
+    try {
+      const rep = await fetch(`${CFG.worker.replace(/\/+$/, '')}/route?c=${encodeURIComponent(c)}`);
+      if (!rep.ok) { routes.delete(c); return; } // on réessaiera à la prochaine ouverture
+      const data = await rep.json();
+      routes.set(c, data.route || null);
+    } catch { routes.delete(c); }
+    if (selection && trouver(selection)?.properties.c === c) majFiche();
+  }
+
+  /** Trait départ → avion (plein) → arrivée (pointillé) et aéroports ; vide si pas de route connue. */
+  function tracerRoute(r, avion) {
+    const dep = r.etapes[0], arr = r.etapes[r.etapes.length - 1];
+    const feats = [];
+    if (avion) {
+      feats.push({ type: 'Feature', properties: { p: 'fait' }, geometry: { type: 'LineString', coordinates: arc([dep.x, dep.y], avion) } });
+      feats.push({ type: 'Feature', properties: { p: 'reste' }, geometry: { type: 'LineString', coordinates: arc(avion, [arr.x, arr.y]) } });
+    }
+    for (const e of [dep, arr]) feats.push({ type: 'Feature', properties: { p: 'aeroport' }, geometry: { type: 'Point', coordinates: [e.x, e.y] } });
+    routeGeo = { type: 'FeatureCollection', features: feats };
+    carte.getSource('route')?.setData(routeGeo);
+  }
+  function effacerRoute() {
+    routeGeo = { type: 'FeatureCollection', features: [] };
+    carte.getSource('route')?.setData(routeGeo);
+  }
+
   // ── Fiche d'un avion ──
   const FL = (a) => (a >= 6000 ? `FL${String(Math.round(a / 100)).padStart(3, '0')}` : `${a.toLocaleString('fr-BE')} ft`);
   function trouver(h) { return avionsGeo.features.find((f) => f.properties.h === h); }
@@ -196,6 +261,16 @@
     const [x, y] = f.geometry.coordinates;
     $('f-titre').textContent = p.c || p.r || p.h.toUpperCase();
     $('f-sous').textContent = [p.t, p.r].filter(Boolean).join(' · ') || 'Type inconnu';
+    const r = routes.get(p.c);
+    $('f-trajet').hidden = !r;
+    if (r) {
+      const dep = r.etapes[0], arr = r.etapes[r.etapes.length - 1];
+      const code = (e) => e.iata || e.icao;
+      const reste = Math.round(distanceNm(y, x, arr.y, arr.x));
+      $('f-codes').textContent = `${code(dep)} → ${code(arr)}`;
+      $('f-noms').textContent = `${dep.ville || dep.nom} → ${arr.ville || arr.nom}${p.g ? '' : ` · ${reste.toLocaleString('fr-BE')} NM restants`}`;
+      tracerRoute(r, p.g ? null : [x, y]);
+    } else if (routeGeo.features.length) effacerRoute();
     const al = $('f-alerte');
     al.hidden = !SQUAWKS[p.q];
     al.textContent = SQUAWKS[p.q] ? `⚠ Transpondeur : ${SQUAWKS[p.q]}` : '';
@@ -218,7 +293,9 @@
     selection = h;
     carte.getLayer('avions-selection') && carte.setFilter('avions-selection', ['==', ['get', 'h'], h]);
     $('fiche').hidden = false;
+    effacerRoute();
     majFiche();
+    demanderRoute(trouver(h)?.properties.c);
   }
   function fermer() {
     selection = null;
@@ -226,6 +303,7 @@
     $('suivre').classList.remove('actif');
     $('suivre').textContent = 'Suivre';
     $('fiche').hidden = true;
+    effacerRoute();
     carte.getLayer('avions-selection') && carte.setFilter('avions-selection', ['==', ['get', 'h'], '']);
   }
   carte.on('click', (ev) => {
