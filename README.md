@@ -20,8 +20,10 @@ Aujourd'hui : **avions** (ADS-B). À venir, une couche à la fois : navires (AIS
 
 ## Comment ça marche (avions)
 
-Les sources gratuites répondent par cercle (250 mi nautiques max). Le Worker découpe la zone visible en cases fixes de 5°,
-les demande en parallèle, garde chaque case 6 s en cache (partagé entre tous les écrans) et renvoie une liste compacte.
+Les sources gratuites répondent par cercle (250 mi nautiques max). Si la zone visible tient dans un cercle, le Worker fait un seul appel ;
+sinon il la découpe en cases fixes de 5°, demandées 4 à la fois (les sources refusent les rafales). Chaque case reste 3 s en cache
+(partagé entre tous les écrans), plus une copie de secours de 2 minutes servie si les sources refusent.
+L'app interroge le Worker toutes les 4 s, et entre deux réponses avance chaque avion selon sa vitesse et son cap, chaque seconde.
 Limite : 24 cases par requête, soit environ 25° × 25° ; en dessous du zoom 4,2 la carte demande de zoomer.
 Le monde entier est couvert, une région à la fois.
 

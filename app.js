@@ -6,7 +6,8 @@
   const sombre = () => !window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches;
 
   const ZOOM_MIN_AVIONS = 4.2; // en dessous, la zone dépasserait la limite des sources
-  const RAFRAICHIR_MS = 8000;
+  const RAFRAICHIR_MS = 4000; // interrogation des sources
+  const LISSAGE_MS = 1000; // entre deux réponses, les avions avancent selon leur vitesse et leur cap
   const SQUAWKS = { 7500: 'Détournement (7500)', 7600: 'Panne radio (7600)', 7700: 'Urgence générale (7700)' };
 
   // ── Mémoire de la dernière vue (silencieuse si le navigateur refuse le stockage dans le cadre du hub) ──
@@ -100,18 +101,39 @@
     return { s: Math.max(-90, b.getSouth()), n: Math.min(90, b.getNorth()), w: b.getWest(), e: b.getEast() };
   }
 
-  function versGeo(liste) {
+  /** Liste compacte du Worker → GeoJSON. `dt` : secondes écoulées depuis la réponse ; chaque avion en vol est avancé de vitesse × dt. */
+  function versGeo(liste, dt = 0) {
     return {
       type: 'FeatureCollection',
-      features: liste.map((a) => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [a.x, a.y] },
-        properties: { h: a.h, c: a.c, r: a.r, t: a.t, a: a.a, g: a.g, s: a.s, k: a.k, v: a.v, q: a.q, u: SQUAWKS[a.q] ? 1 : 0 },
-      })),
+      features: liste.map((a) => {
+        let x = a.x, y = a.y, alt = a.a;
+        if (dt > 0 && !a.g && a.s > 30 && a.k != null) {
+          const d = (a.s * dt) / 3600; // milles nautiques parcourus
+          const r = (a.k * Math.PI) / 180;
+          y += (d * Math.cos(r)) / 60;
+          x += (d * Math.sin(r)) / (60 * Math.max(0.05, Math.cos((a.y * Math.PI) / 180)));
+          if (alt != null && a.v) alt = Math.max(0, Math.round(alt + (a.v * dt) / 60));
+        }
+        return {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [x, y] },
+          properties: { h: a.h, c: a.c, r: a.r, t: a.t, a: alt, g: a.g, s: a.s, k: a.k, v: a.v, q: a.q, u: SQUAWKS[a.q] ? 1 : 0 },
+        };
+      }),
     };
   }
 
+  let brut = []; // dernière réponse du Worker, telle quelle
+
+  /** Place les avions là où ils sont maintenant (dernière réponse + temps écoulé). */
+  function projeter() {
+    avionsGeo = versGeo(brut, Math.min(40, (Date.now() - derniereMaj) / 1000));
+    carte.getSource('avions')?.setData(avionsGeo);
+    majFiche();
+  }
+
   function vider(texte) {
+    brut = [];
     avionsGeo = { type: 'FeatureCollection', features: [] };
     carte.getSource('avions')?.setData(avionsGeo);
     $('compteur').textContent = '✈ —';
@@ -134,12 +156,11 @@
       const data = await rep.json().catch(() => ({}));
       if (!rep.ok) throw new Error(data.error || `Erreur ${rep.status}`);
       if (data.trop) { vider('Zone trop grande : zoome un peu'); return; }
-      avionsGeo = versGeo(data.avions);
-      carte.getSource('avions')?.setData(avionsGeo);
+      brut = data.avions;
       derniereMaj = Date.now();
+      projeter();
       $('compteur').textContent = `✈ ${data.n.toLocaleString('fr-BE')}`;
       message(data.partiel ? 'Données partielles : une source ne répond pas' : '', false);
-      majFiche();
     } catch (err) {
       if (err.name === 'AbortError') return;
       message(`Avions indisponibles : ${echapper(err.message)}`, true);
@@ -147,6 +168,15 @@
       enCours = false;
     }
   }
+
+  // Mouvement fluide : toutes les secondes (toutes les 2 s quand il y a beaucoup d'avions), on avance les avions de la dernière réponse.
+  let dernierLissage = 0;
+  setInterval(() => {
+    if (document.hidden || !brut.length) return;
+    if (brut.length > 1500 && Date.now() - dernierLissage < 2 * LISSAGE_MS - 100) return;
+    dernierLissage = Date.now();
+    projeter();
+  }, LISSAGE_MS);
 
   let minuteur = null;
   const planifier = (delai) => { clearTimeout(minuteur); minuteur = setTimeout(async () => { if (!document.hidden) await charger(); planifier(RAFRAICHIR_MS); }, delai); };

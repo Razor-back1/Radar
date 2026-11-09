@@ -1,7 +1,7 @@
 // Worker Cloudflare de la carte live : relais vers les sources publiques (CORS, cache, clés cachées).
 // Une route par couche : /avions aujourd'hui ; navires, conflits et caméras viendront s'ajouter dans `routes`.
 
-import { cases, chargerCase, fusionner, zones } from './avions.js';
+import { cases, chargerCase, fusionner, parLots, zones } from './avions.js';
 
 const CORS = {
   'access-control-allow-origin': '*',
@@ -15,20 +15,31 @@ const json = (data, status = 200, extra = {}) =>
 
 const nombre = (v) => (v === null || v === '' ? NaN : Number(v));
 
-/** Une case, avec le cache de bord (Cloudflare) : 6 s, partagé entre tous les écrans. */
+/**
+ * Une case, avec le cache de bord (Cloudflare) : 3 s partagées entre tous les écrans, et une copie de secours de 2 minutes
+ * servie si les sources refusent (limites de débit) : mieux vaut un avion vieux de 20 s que pas d'avion.
+ */
 async function caseAvecCache(c, ctx, fetcher) {
   const cache = globalThis.caches?.default;
-  const cleCache = new Request(`https://cache.carte.invalid/avions/${c.cle}`);
+  const cleFrais = new Request(`https://cache.carte.invalid/avions/${c.cle}`);
+  const cleSecours = new Request(`https://cache.carte.invalid/avions-secours/${c.cle}`);
   if (cache) {
-    const hit = await cache.match(cleCache);
+    const hit = await cache.match(cleFrais);
     if (hit) return hit.json();
   }
-  const liste = await chargerCase(c, fetcher);
-  if (cache) {
-    const rep = new Response(JSON.stringify(liste), { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=6' } });
-    ctx?.waitUntil?.(cache.put(cleCache, rep));
+  try {
+    const liste = await chargerCase(c, fetcher);
+    if (cache) {
+      const corps = JSON.stringify(liste);
+      const entetes = (age) => ({ 'content-type': 'application/json', 'cache-control': `public, max-age=${age}` });
+      ctx?.waitUntil?.(Promise.all([cache.put(cleFrais, new Response(corps, { headers: entetes(3) })), cache.put(cleSecours, new Response(corps, { headers: entetes(120) }))]));
+    }
+    return liste;
+  } catch (err) {
+    const secours = cache && (await cache.match(cleSecours));
+    if (secours) return secours.json();
+    throw err;
   }
-  return liste;
 }
 
 export async function avions(url, ctx, fetcher = fetch) {
@@ -47,10 +58,10 @@ export async function avions(url, ctx, fetcher = fetch) {
   const uniques = [...new Map(toutes.map((c) => [c.cle, c])).values()];
   if (uniques.length > 24) return json({ trop: true, avions: [], n: 0 });
 
-  const resultats = await Promise.allSettled(uniques.map((c) => caseAvecCache(c, ctx, fetcher)));
+  const resultats = await parLots(uniques.map((c) => () => caseAvecCache(c, ctx, fetcher)), 4);
   const ok = resultats.filter((r) => r.status === 'fulfilled').map((r) => r.value);
   if (ok.length === 0) {
-    const raison = resultats[0]?.status === 'rejected' ? String(resultats[0].reason?.message ?? resultats[0].reason) : 'inconnue';
+    const raison = [...new Set(resultats.filter((r) => r.status === 'rejected').map((r) => String(r.reason?.message ?? r.reason)))].join(' ; ') || 'inconnue';
     return json({ error: `Sources indisponibles (${raison})` }, 502);
   }
   const liste = fusionner(ok, boites);

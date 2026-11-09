@@ -25,12 +25,36 @@ export function pasLon(rang) {
   return 360 / Math.ceil(360 / ideal); // un nombre entier de colonnes fait le tour du monde
 }
 
+/** Distance entre deux points, en milles nautiques (haversine). */
+export function distanceNm(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180;
+  const a = Math.sin(((lat2 - lat1) * r) / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(((lon2 - lon1) * r) / 2) ** 2;
+  return 2 * 3440.065 * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/**
+ * Le moins de requêtes possible : si la zone tient dans un seul cercle (≤ 240 mi nautiques de rayon), un seul appel,
+ * centré sur la zone (centre arrondi à 0,25° et rayon à la dizaine supérieure, pour que des écrans voisins partagent le cache).
+ * Sinon, la grille fixe de cases de 5°. Renvoie null si la zone est trop grande.
+ */
+export function cases(s, w, n, e, max = MAX_CASES) {
+  s = Math.max(-90, s);
+  n = Math.min(90, n);
+  if (!(s < n) || !(w <= e)) return [];
+  const lat = Math.round(((s + n) / 2) * 4) / 4;
+  const lon = Math.round((w + e) * 2) / 4; // (w+e)/2 arrondi à 0,25°
+  const rayonBrut = Math.max(...[[s, w], [s, e], [n, w], [n, e]].map(([y, x]) => distanceNm(lat, lon, y, x)));
+  const rayon = Math.ceil((rayonBrut + 5) / 10) * 10;
+  if (rayon <= 240) return [{ cle: `z:${lat}:${lon}:${rayon}`, lat, lon: lon180(lon), rayon }];
+  return grille(s, w, n, e, max);
+}
+
 /**
  * Cases couvrant [s,n] × [w,e] (w ≤ e, en degrés ; e peut dépasser 180 si la zone passe l'antiméridien).
  * Chaque case : { cle, lat, lon, rayon } (centre, rayon en mi nautiques).
  * Renvoie null si la zone demande plus de MAX_CASES cases.
  */
-export function cases(s, w, n, e, max = MAX_CASES) {
+export function grille(s, w, n, e, max = MAX_CASES) {
   s = Math.max(-90, s);
   n = Math.min(90, n);
   if (!(s < n) || !(w <= e)) return [];
@@ -98,7 +122,8 @@ export function normaliser(a) {
 
 /** Récupère une case auprès des sources, la première qui répond. Renvoie une liste d'avions compacts. */
 export async function chargerCase(c, fetcher = fetch) {
-  let derniereErreur = 'aucune source';
+  const erreurs = [];
+  const nom = (base) => base.replace(/^https:\/\/api\./, '');
   for (const base of SOURCES) {
     try {
       const rep = await fetcher(`${base}/v2/point/${c.lat.toFixed(3)}/${c.lon.toFixed(3)}/${c.rayon}`, {
@@ -106,17 +131,17 @@ export async function chargerCase(c, fetcher = fetch) {
         signal: AbortSignal.timeout(8000),
       });
       if (!rep.ok) {
-        derniereErreur = `${base} → ${rep.status}`;
+        erreurs.push(`${nom(base)} ${rep.status}`);
         continue;
       }
       const json = await rep.json();
       const liste = Array.isArray(json.ac) ? json.ac : Array.isArray(json.aircraft) ? json.aircraft : [];
       return liste.map(normaliser).filter(Boolean);
     } catch (err) {
-      derniereErreur = `${base} → ${err instanceof Error ? err.message : err}`;
+      erreurs.push(`${nom(base)} ${err instanceof Error ? err.message : err}`);
     }
   }
-  throw new Error(derniereErreur);
+  throw new Error(erreurs.join(', ') || 'aucune source');
 }
 
 /** Fusionne des listes d'avions (sans doublon par code OACO), garde ceux qui sont dans la zone. */
@@ -131,4 +156,22 @@ export function fusionner(listes, boites) {
     }
   }
   return [...vus.values()];
+}
+
+/** Exécute les tâches (fonctions async) en parallèle, `n` à la fois : les sources gratuites refusent les rafales. */
+export async function parLots(taches, n = 4) {
+  const resultats = new Array(taches.length);
+  let suivant = 0;
+  async function travailleur() {
+    while (suivant < taches.length) {
+      const i = suivant++;
+      try {
+        resultats[i] = { status: 'fulfilled', value: await taches[i]() };
+      } catch (reason) {
+        resultats[i] = { status: 'rejected', reason };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(n, taches.length) }, travailleur));
+  return resultats;
 }
