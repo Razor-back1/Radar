@@ -12,7 +12,7 @@ Aujourd'hui : **avions** (ADS-B). À venir, une couche à la fois : navires (AIS
 ## Mise en route
 
 1. **Pages** : Réglages du dépôt → Pages → branche `main`, dossier `/ (root)`.
-2. **Worker** : depuis `worker/`, `npx wrangler login` puis `npx wrangler deploy` ; l'adresse affichée est du type
+2. **Worker** : branché sur le dépôt dans Cloudflare (Workers & Pages → Import a repository, nom `carte-live`, dossier racine vide, commande `npx wrangler deploy`) ; il se redéploie à chaque push. Ou à la main : `npx wrangler login` puis `npx wrangler deploy` ; l'adresse affichée est du type
    `https://carte-live.<compte>.workers.dev`. Colle-la dans `config.js` (`worker`).
    Pour un déploiement automatique à chaque push : ajoute les secrets `CLOUDFLARE_API_TOKEN` et
    `CLOUDFLARE_ACCOUNT_ID` au dépôt (le workflow `worker.yml` s'en charge).

@@ -1,0 +1,6 @@
+# Déploiement du Worker depuis la racine du dépôt (Cloudflare Workers Builds, ou « npx wrangler deploy »).
+# Le même Worker existe aussi dans worker/wrangler.toml, pour un déploiement depuis ce dossier.
+name = "carte-live"
+main = "worker/src/index.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
